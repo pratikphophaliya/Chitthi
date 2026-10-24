@@ -1,4 +1,5 @@
 import base64, html, io, os, re, time, zipfile
+from contextlib import contextmanager
 
 import httpx
 import streamlit as st
@@ -12,7 +13,8 @@ INK, PINK, CREAM, BG = "#4a2e35", "#eba3b8", "#f8f1f1", "#f4cfd3"
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700&family=Noto+Serif:wght@400;600&display=swap');
-#MainMenu, footer, header [data-testid="stToolbar"] {{ visibility: hidden; }}
+#MainMenu, footer, [data-testid="stMainMenu"], [data-testid="stAppDeployButton"] {{ visibility: hidden; }}
+[data-testid="stExpandSidebarButton"] {{ background: {CREAM}; border: 2px solid {INK}; border-radius: 6px; }}
 header[data-testid="stHeader"] {{ background: {PINK}; border-bottom: 3px solid {INK}; }}
 [data-baseweb="popover"] ul, [data-baseweb="popover"] li {{ background: {CREAM} !important; color: {INK} !important; }}
 [data-baseweb="popover"] li:hover, [data-baseweb="popover"] li[aria-selected="true"] {{ background: {PINK} !important; }}
@@ -74,6 +76,32 @@ textarea, [data-baseweb="select"] > div, input {{ border: 2px solid {INK} !impor
   background: repeating-linear-gradient(90deg, {PINK} 0 18px, transparent 18px 24px);
   animation: load 1.8s ease-out forwards; }}
 @keyframes load {{ to {{ width: 100%; }} }}
+.wait {{ display: flex; align-items: center; gap: .8rem; font-weight: 700; margin: .6rem 0; }}
+.wait svg {{ animation: spin 1.2s linear infinite; }}
+@keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+
+/* soft animations */
+@keyframes float {{ 0%,100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-6px); }} }}
+@keyframes fade {{ from {{ opacity: 0; transform: translateY(6px); }} to {{ opacity: 1; transform: none; }} }}
+@keyframes beat {{ 0%,100% {{ transform: scale(1); }} 50% {{ transform: scale(1.08); }} }}
+@keyframes glow {{ 0%,100% {{ box-shadow: 0 0 4px #4cd17a; }} 50% {{ box-shadow: 0 0 10px #4cd17a; }} }}
+.hero svg {{ animation: float 4s ease-in-out infinite; }}
+.step svg {{ transition: transform .35s ease; }}
+.step:hover svg {{ transform: translateY(-4px) rotate(-3deg); }}
+[class*="st-key-win"] {{ transition: transform .3s ease, box-shadow .3s ease; }}
+[class*="st-key-win"]:hover {{ transform: translate(-2px,-2px); box-shadow: 8px 8px 0 {INK}; }}
+.letter, .wait, .stAlert, [data-testid="stAudio"], [data-testid="stImage"] {{ animation: fade .6s ease-out; }}
+.stTabs [data-baseweb="tab"] {{ transition: background .25s ease, transform .25s ease; }}
+.stTabs [data-baseweb="tab"]:hover {{ transform: translateY(-2px); }}
+.stTabs [data-baseweb="tab-panel"] {{ animation: fade .45s ease-out; }}
+textarea, input {{ transition: box-shadow .25s ease; }}
+textarea:focus, input:focus {{ box-shadow: 0 0 0 3px {PINK} !important; }}
+.led {{ transition: background .4s ease; }}
+.led.on {{ animation: glow 2.4s ease-in-out infinite; }}
+.loadbar div {{ transition: width .8s ease; }}
+.footer {{ text-align: center; margin: 70vh 0 1rem; padding-top: 1rem; border-top: 2px dashed {INK}; animation: fade 1s ease-out; }}
+.footer p {{ margin: .2rem 0; font-weight: 600; }}
+.footer svg {{ animation: beat 1.8s ease-in-out infinite; vertical-align: middle; margin: 0 .3rem; }}
 .api {{ display: flex; align-items: center; gap: .5rem; margin: .2rem 0; font-weight: 600; }}
 .led {{ width: 12px; height: 12px; border-radius: 50%; border: 2px solid {INK}; background: #c9c0c2; }}
 .led.on {{ background: #4cd17a; box-shadow: 0 0 6px #4cd17a; }}
@@ -96,6 +124,23 @@ def icon(name, w=70):
 def titlebar(text):
     st.markdown(f"<div class='titlebar'><span>{text}</span><span class='ctl'>_ □ ✕</span></div>",
                 unsafe_allow_html=True)
+
+
+@contextmanager
+def waiting(msg):
+    """Like st.spinner, but with a spinning hourglass."""
+    ph = st.empty()
+    ph.markdown(f"<div class='wait'>{icon('hourglass', 34)}<span>{html.escape(msg)}</span></div>",
+                unsafe_allow_html=True)
+    try:
+        yield
+    finally:
+        ph.empty()
+
+
+def footer():
+    st.markdown(f"<div class='footer'><p>Made with {icon('heart', 26)} by Pratik and Lalmuankima</p>"
+                "<p>Made using Sarvam API, for Sarvam</p></div>", unsafe_allow_html=True)
 
 
 def letter(text):
@@ -149,6 +194,7 @@ if not st.session_state.get("started"):
             key_in = st.text_input("Sarvam API key", type="password")
         st.button("Open Chitthi", width="stretch", on_click=start, args=(key_in,),
                   disabled=not (os.environ.get("SARVAM_API_KEY") or key_in))
+    footer()
     st.stop()
 
 # ---------- Sidebar ----------
@@ -258,7 +304,7 @@ with tab1:
             else:
                 st.markdown(f"<div class='step'>{icon('folder', 70)}{html.escape(up.name)}</div>", unsafe_allow_html=True)
             if st.button("Read the handwriting", width="stretch"):
-                with st.spinner("Sarvam Vision is reading Dadi's handwriting..."):
+                with waiting("Sarvam Vision is reading Dadi's handwriting..."):
                     try:
                         st.session_state.orig = vision(to_pdf(up), gp)
                         mark("Sarvam Vision")
@@ -272,13 +318,13 @@ with tab1:
         titlebar("2 · letter.txt")
         orig = st.text_area("Letter text (edit or paste here)", value=st.session_state.get("orig", ""), height=230)
         if st.button("Translate & explain", disabled=not orig.strip(), width="stretch"):
-            with st.spinner(f"Translating to {kid_name}..."):
+            with waiting(f"Translating to {kid_name}..."):
                 try:
                     st.session_state.trans = translate(orig, kid)
                     mark("Sarvam Translate")
                 except Exception as e:
                     st.error(f"Translation failed: {e}")
-            with st.spinner("Sarvam-105B is understanding what Dadi means..."):
+            with waiting("Sarvam-105B is understanding what Dadi means..."):
                 try:
                     st.session_state.explain = chat(
                         f"This is a letter from a grandparent, written in {gp_name}:\n\n{orig}\n\n"
@@ -297,7 +343,7 @@ with tab1:
             if st.session_state.get("trans"):
                 letter(st.session_state.trans)
                 if st.button("Listen to the letter"):
-                    with st.spinner("Bulbul is reading it aloud..."):
+                    with waiting("Bulbul is reading it aloud..."):
                         try:
                             st.session_state.trans_audio = tts(st.session_state.trans, kid)
                             mark("Bulbul TTS")
@@ -318,14 +364,14 @@ with tab2:
         st.write("Speak your reply casually — Hinglish is totally fine!")
         rec = st.audio_input("Record your reply")
         if rec and st.button("Turn it into a letter", width="stretch"):
-            with st.spinner("Saaras is listening..."):
+            with waiting("Saaras is listening..."):
                 try:
                     st.session_state.said = stt(rec.getvalue())
                     mark("Saaras STT")
                 except Exception as e:
                     st.error(f"Couldn't transcribe: {e}")
             if st.session_state.get("said"):
-                with st.spinner(f"Writing a loving letter in {gp_name}..."):
+                with waiting(f"Writing a loving letter in {gp_name}..."):
                     try:
                         st.session_state.reply = chat(
                             f"A grandchild said this to their grandparent (casual Hinglish):\n\n"
@@ -336,7 +382,7 @@ with tab2:
                     except Exception as e:
                         st.error(f"Letter writing failed: {e}")
             if st.session_state.get("reply"):
-                with st.spinner(f"Bulbul is reading it in {gp_name}..."):
+                with waiting(f"Bulbul is reading it in {gp_name}..."):
                     try:
                         st.session_state.reply_audio = tts(st.session_state.reply, gp)
                         mark("Bulbul TTS")
@@ -370,7 +416,7 @@ with tab3:
         text = st.session_state.get("trans") or st.session_state.get("reply", "")
         if note and text and st.button("Read it in Dadi's voice", width="stretch"):
             lang = kid if st.session_state.get("trans") else gp
-            with st.spinner("Learning Dadi's voice..."):
+            with waiting("Learning Dadi's voice..."):
                 try:
                     v = client.voice_cloning.create_voice(file=(note.name, note.getvalue(), note.type),
                                                           name="dadi", language=lang)
@@ -389,3 +435,5 @@ api_panel.markdown(
     + f"<div class='loadbar' style='margin-top:.6rem'><div style='width:{100 * len(used) // len(APIS)}%;animation:none'></div></div>"
     + f"<p style='text-align:center;font-weight:700;margin:.3rem 0 0'>{len(used)} / {len(APIS)} APIs used</p>",
     unsafe_allow_html=True)
+
+footer()
