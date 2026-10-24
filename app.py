@@ -200,9 +200,19 @@ def vision(pdf_bytes, lang):
     content = httpx.request(dl.method or "GET", dl.url, headers=dl.headers or {}, timeout=60).content
     if content[:2] == b"PK":
         with zipfile.ZipFile(io.BytesIO(content)) as z:
-            md = [n for n in z.namelist() if n.endswith(".md")]
-            return z.read(md[0]).decode("utf-8")
-    return content.decode("utf-8")
+            names = z.namelist()
+            md = [n for n in names if n.endswith(".md")]
+            if md:
+                return z.read(md[0]).decode("utf-8")
+            content = z.read(next(n for n in names if n.endswith(".html")))  # Vision now returns HTML
+    return html_to_text(content.decode("utf-8"))
+
+
+def html_to_text(s):
+    s = re.sub(r"<(style|script|head).*?</\1>", "", s, flags=re.S | re.I)
+    s = re.sub(r"<br\s*/?>|</(p|div|h\d|li|tr)>", "\n", s, flags=re.I)
+    s = html.unescape(re.sub(r"<[^>]+>", "", s))
+    return re.sub(r"\n{3,}", "\n\n", s).strip()
 
 
 def translate(text, target):
